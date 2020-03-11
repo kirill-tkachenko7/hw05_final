@@ -1,0 +1,5 @@
+{
+    "python.pythonPath": "c:\\Dev\\yatube\\venv\\Scripts\\python.exe",
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": false
+}
