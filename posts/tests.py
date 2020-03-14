@@ -4,7 +4,11 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.cache.utils import make_template_fragment_key
 from django.core.files.uploadedfile import SimpleUploadedFile
-# from django.test.utils import setup_test_environment, teardown_test_environment
+
+# import django.utils.html.escape to account for special characters
+# which are escaped by default in template variables
+# https://code.djangoproject.com/wiki/AutoEscaping
+from django.utils.html import escape
 from PIL import Image
 import tempfile
 
@@ -31,11 +35,6 @@ class PostsTest(TestCase):
         return file
     
     def setUp(self):
-        # try:
-        #     setup_test_environment()
-        # except:
-        #     teardown_test_environment()
-        #     setup_test_environment()
         self.client = Client()
         self.user = User.objects.create_user(
             username='sarah', email='connor.s@skynet.com', password='12345')
@@ -60,12 +59,10 @@ class PostsTest(TestCase):
     
     def test_add_post_authenticated(self):
         """ test that authenticated user can add new posts """
-        if self.client.login(username='sarah', password='12345'):
-            response = self.client.get('/new/')
-            self.assertEqual(response.status_code, 200, 'Authenticated user must be able to add posts')
-        else:
-            self.assertTrue(False, 'Failed to authenticate test user')
-
+        self.client.login(username='sarah', password='12345')
+        response = self.client.get('/new/')
+        self.assertEqual(response.status_code, 200, 'Authenticated user must be able to add posts')
+        
     def test_add_post_anonymous(self):
         """ test that anonymous user cannot add new posts and is redirected to home page """
         self.client.logout()
@@ -86,7 +83,7 @@ class PostsTest(TestCase):
 
     def test_post_profile(self):
         """ test that new post appears on author's profile page """
-        response = self.client.get(f'/sarah/')
+        response = self.client.get('/sarah/')
         self.assertIn(self.post, 
             response.context['page'], 
             "new post must appear on the author's profile page")
@@ -114,45 +111,35 @@ class PostsTest(TestCase):
             msg_prefix='anonymous user is not redirected to post view')
 
     def test_edit_post_wrong_user(self):
-        if self.client.login(username='T-800', password='illbeback'):
-            response = self.client.get(f'/sarah/{self.post.id}/edit/')
-            self.assertRedirects(response,
-                f'/sarah/{self.post.id}/',
-                msg_prefix='wrong user is not redirected to post view')
-        else:
-            self.assertTrue(False, 'Failed to authenticate test user')
-
+        self.client.login(username='T-800', password='illbeback')
+        response = self.client.get(f'/sarah/{self.post.id}/edit/')
+        self.assertRedirects(response,
+            f'/sarah/{self.post.id}/',
+            msg_prefix='wrong user is not redirected to post view')
+        
     def test_edit_post_authenticated(self):
-        if self.client.login(username='sarah', password='12345'):
-            response = self.client.get(f'/sarah/{self.post.id}/edit/')
-            self.assertEqual(response.status_code, 200, 'Authenticated user must be able to edit posts')
+        self.client.login(username='sarah', password='12345')
+        response = self.client.get(f'/sarah/{self.post.id}/edit/')
+        self.assertEqual(response.status_code, 200, 'Authenticated user must be able to edit posts')
 
-            # edit post and test that it was updated in the db
-            orig_text = self.post.text
-            new_text = "That's great see your getting it. И немного кириллицы для остроты ощущений"
-            self.client.post(f'/sarah/{self.post.id}/edit/', {'text': new_text})
-            self.post.refresh_from_db() # reload post after it was updated
-            self.assertEqual(self.post.text, new_text)
+        # edit post and test that it was updated in the db
+        orig_text = self.post.text
+        new_text = "That's great see your getting it. И немного кириллицы для остроты ощущений"
+        self.client.post(f'/sarah/{self.post.id}/edit/', {'text': new_text})
+        self.post.refresh_from_db() # reload post after it was updated
+        self.assertEqual(self.post.text, new_text)
+        
+        # check that changes are reflected on home page, author's profile and post page
+        for url in ('/', '/sarah/', f'/sarah/{self.post.id}/'):
+            response = self.client.get(url)
+            self.assertContains(response,
+                escape(self.post.text), 
+                msg_prefix=f'updates were not reflected in {url}')
             
-            # import django.utils.html.escape to account for special characters
-            # which are escaped by default in template variables
-            # https://code.djangoproject.com/wiki/AutoEscaping
-            from django.utils.html import escape
-            
-            # check that changes are reflected on home page, author's profile and post page
-            for url in ('/', '/sarah/', f'/sarah/{self.post.id}/'):
-                response = self.client.get(url)
-                self.assertContains(response,
-                    escape(self.post.text), 
-                    msg_prefix=f'updates were not reflected in {url}')
-                
-                # make sure existing post is edited, not a new one added
-                self.assertNotContains(response, 
-                    escape(orig_text), 
-                    msg_prefix=f'old post text remains in {url}')
-
-        else:
-            self.assertTrue(False, 'Failed to authenticate test user')
+            # make sure existing post is edited, not a new one added
+            self.assertNotContains(response, 
+                escape(orig_text), 
+                msg_prefix=f'old post text remains in {url}')
 
     def test_comments_anonymous(self):
         """ test that anonymous user cannot add comments """
@@ -166,85 +153,77 @@ class PostsTest(TestCase):
 
     def test_comments_authenticated(self):
         """ test that authenticated user can add comments """
-        if self.client.login(username='T-800', password='illbeback'):
-            response = self.client.post(f'/sarah/{self.post.id}/comment/', {'text': 'deep'})
-            self.assertTrue(
-                Comment.objects.filter(post=self.post, author=self.follower, text='deep').exists(),
-                'Comment object was not created')
-            self.assertRedirects(response, f'/sarah/{self.post.id}/',
-                msg_prefix='user is not redirected to post page after commenting')
-            response = self.client.get(f'/sarah/{self.post.id}/')
-            self.assertEqual(response.context['comments'][0].text, 'deep',
-                'comment not displayed on post page')
-        else:
-            self.assertTrue(False, 'Failed to authenticate test user')
-
+        self.client.login(username='T-800', password='illbeback')
+        response = self.client.post(f'/sarah/{self.post.id}/comment/', {'text': 'deep'})
+        self.assertTrue(
+            Comment.objects.filter(post=self.post, author=self.follower, text='deep').exists(),
+            'Comment object was not created')
+        self.assertRedirects(response, f'/sarah/{self.post.id}/',
+            msg_prefix='user is not redirected to post page after commenting')
+        response = self.client.get(f'/sarah/{self.post.id}/')
+        self.assertEqual(response.context['comments'][0].text, 'deep',
+            'comment not displayed on post page')
+        
     def test_follow(self):
         """ test following, unfollowing and accessing followed authors' posts """
-        if self.client.login(username='T-800', password='illbeback'):
-            # test following
-            response = self.client.get('/sarah/')
-            self.assertContains(response, 'href="/sarah/follow"', 
-                msg_prefix='"Follow" button not found on profile page')
-            self.assertNotContains(response, 'href="/sarah/unfollow"', 
-                msg_prefix='"Unfollow" button found on profile page')
-            response = self.client.get('/sarah/follow')
-            self.assertTrue(
-                Follow.objects.filter(user=self.follower, author=self.user).exists(), 
-                "Follow object was not created")
-            
-            # test that follower can see followed author's post 
-            response = self.client.get('/follow/')
-            self.assertIn(
-                self.post, response.context['page'], 
-                "follower can not see their subscriptions on /follow/ page")
-            
-            # test unfollowing
-            response = self.client.get('/sarah/')
-            self.assertNotContains(response, 'href="/sarah/follow"', 
-                msg_prefix='"Follow" button found on profile page')
-            self.assertContains(response, 'href="/sarah/unfollow"', 
-                msg_prefix='"Unfollow" button not found on profile page')
-            response = self.client.get('/sarah/unfollow')
-            self.assertFalse(Follow.objects.filter(user=self.follower, author=self.user).exists(),
-                "Follow object was not deleted")
+        self.client.login(username='T-800', password='illbeback')
+        # test following
+        response = self.client.get('/sarah/')
+        self.assertContains(response, 'href="/sarah/follow"', 
+            msg_prefix='"Follow" button not found on profile page')
+        self.assertNotContains(response, 'href="/sarah/unfollow"', 
+            msg_prefix='"Unfollow" button found on profile page')
+        response = self.client.get('/sarah/follow')
+        self.assertTrue(
+            Follow.objects.filter(user=self.follower, author=self.user).exists(), 
+            "Follow object was not created")
+        
+        # test that follower can see followed author's post 
+        response = self.client.get('/follow/')
+        self.assertIn(
+            self.post, response.context['page'], 
+            "follower can not see their subscriptions on /follow/ page")
+        
+        # test unfollowing
+        response = self.client.get('/sarah/')
+        self.assertNotContains(response, 'href="/sarah/follow"', 
+            msg_prefix='"Follow" button found on profile page')
+        self.assertContains(response, 'href="/sarah/unfollow"', 
+            msg_prefix='"Unfollow" button not found on profile page')
+        response = self.client.get('/sarah/unfollow')
+        self.assertFalse(Follow.objects.filter(user=self.follower, author=self.user).exists(),
+            "Follow object was not deleted")
 
-            # test that author's posts do not appear on /follow/ for non-followers
-            response = self.client.get('/follow/')
-            self.assertNotIn(
-                self.post, response.context['page'], 
-                "author not followed, but their post appears on /follow/")
-        else:
-            self.assertTrue(False, 'Failed to authenticate test user')
-
+        # test that author's posts do not appear on /follow/ for non-followers
+        response = self.client.get('/follow/')
+        self.assertNotIn(
+            self.post, response.context['page'], 
+            "author not followed, but their post appears on /follow/")
+        
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
     def test_image_upload(self):
-        if self.client.login(username='sarah', password='12345'):
-            # add an image to the test post
-            response = self.client.post(f'/sarah/{self.post.id}/edit/', 
-                {'text': self.post.text, 'image': self.image})
-            
-            # test that image successfully uploaded
-            self.assertRedirects(response, f'/sarah/{self.post.id}/')
+        self.client.login(username='sarah', password='12345')
+        # add an image to the test post
+        response = self.client.post(f'/sarah/{self.post.id}/edit/', 
+            {'text': self.post.text, 'image': self.image})
+        
+        # test that image successfully uploaded
+        self.assertRedirects(response, f'/sarah/{self.post.id}/')
 
-            # check that changes are reflected on home page, author's profile and post page
-            for url in ('/', '/sarah/', f'/sarah/{self.post.id}/'):
-                response = self.client.get(url)
-                self.assertContains(response,
-                    "<img", 
-                    msg_prefix=f'image is not shown in {url}')
-        else:
-            self.assertTrue(False, 'Failed to authenticate test user')
-
+        # check that changes are reflected on home page, author's profile and post page
+        for url in ('/', '/sarah/', f'/sarah/{self.post.id}/'):
+            response = self.client.get(url)
+            self.assertContains(response,
+                "<img", 
+                msg_prefix=f'image is not shown in {url}')
+        
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
     def test_non_image_upload(self):
-        if self.client.login(username='sarah', password='12345'):
-            response = self.client.post(f'/sarah/{self.post.id}/edit/', 
-                {'text': self.post.text, 'image': self.file})
-            self.assertTrue(response.context['form'].has_error('image'))
-        else:
-            self.assertTrue(False, 'Failed to authenticate test user')
-    
+        self.client.login(username='sarah', password='12345')
+        response = self.client.post(f'/sarah/{self.post.id}/edit/', 
+            {'text': self.post.text, 'image': self.file})
+        self.assertTrue(response.context['form'].has_error('image'))
+        
 class TestCache(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
