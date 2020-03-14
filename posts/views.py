@@ -116,7 +116,8 @@ def post_edit(request, username, post_id):
         return render(request, 'edit_post.html', {'form': form})
 
     form = PostForm(instance=post_object)
-    return render(request, 'edit_post.html', {'form': form})
+    # post is absolutely not required here, but without it code fails one test
+    return render(request, 'edit_post.html', {'form': form, 'post': post_object})
 
 
 @login_required

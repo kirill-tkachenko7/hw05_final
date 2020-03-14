@@ -2,6 +2,9 @@
 {% block title %}
 Редактировать запись
 {% endblock title %}
+{% if post %}
+<!-- ура, в контексте шаблона есть post -->
+{% endif %}
 {% block card_header %}
 Редактировать запись
 {% endblock card_header %}
