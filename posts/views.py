@@ -159,13 +159,16 @@ def follow_index(request):
 @login_required
 def profile_follow(request, username):
     """Create a new Follow object where active user follows username's profile."""
-    if request.user.username != username:
+    if request.user.username == username:
         # can't follow yourself
-        if not Follow.objects.filter(author__username=username, user= request.user).exists():
-            # prevent duplicate followings
-            author = get_object_or_404(User, username=username)
-            follow = Follow.objects.create(user=request.user, author=author)
-            follow.save()
+        return redirect('profile', username=username)
+
+    if not Follow.objects.filter(author__username=username, user= request.user).exists():
+        # prevent duplicate followings
+        author = get_object_or_404(User, username=username)
+        follow = Follow.objects.create(user=request.user, author=author)
+        follow.save()
+        
     return redirect('profile', username=username)
 
 
@@ -178,7 +181,7 @@ def profile_unfollow(request, username):
 
 
 def page_not_found(request, exception):
-    """Display error 4040 page."""
+    """Display error 404 page."""
     return render(request, "misc/404.html", {"path": request.path}, status=404)
 
 
